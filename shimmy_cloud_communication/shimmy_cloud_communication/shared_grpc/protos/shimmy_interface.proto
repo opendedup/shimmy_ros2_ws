@@ -1,0 +1,266 @@
+// Specify the syntax version (proto3 is standard)
+syntax = "proto3";
+
+// Define a package name to avoid naming conflicts
+package shimmy.protos.v1;
+
+// Import standard types if needed (e.g., for timestamps)
+// import "google/protobuf/timestamp.proto";
+
+// ===================================================================
+//  Messages for Robot -> Cloud Communication
+// ===================================================================
+
+// Represents a chunk of audio data streamed from the robot's microphone
+message AudioChunk {
+  bytes audio_data = 1; // Raw audio bytes (e.g., PCM 16-bit)
+  // google.protobuf.Timestamp timestamp = 2; // Optional: Timestamp for the chunk
+  int64 sequence_number = 3; // Optional: To ensure order
+  float direction = 4; // Optional: Direction of audio source in radians or degrees
+}
+
+// Represents non-audio status or data the robot might send
+message RobotStatusUpdate {
+  oneof status_data {
+    PowerStatus power_status = 1;
+    MovementStatus movement_status = 2;
+    ImageData image_data = 3;
+    DepthData depth_data = 4;
+    ObjectDetectionResult object_detection_result = 5;
+    GenericRobotState generic_state = 6; // For general status like "Idle", "Charging"
+    RobotError error_report = 7;
+    CommandAcknowledgement command_ack = 8;
+    LocationStatus location_status = 9;
+    EnvironmentalStatus environmental_status = 10;
+  }
+}
+
+message PowerStatus {
+  float battery_voltage = 1;
+  float current_draw_amps = 2; // Optional
+  float power_consumption_watts = 3; // Optional
+}
+
+message MovementStatus {
+  bool is_moving = 1;
+  bool goal_reached = 2; // True if the last command completed successfully
+  string message = 3; // e.g., "Obstacle detected", "Movement complete"
+}
+
+message ImageData {
+  bytes image_bytes = 1;
+  string format = 2; // e.g., "jpeg", "png"
+  int32 width = 3;
+  int32 height = 4;
+}
+
+message DepthData {
+  bytes depth_map_bytes = 1; // Raw depth data (format depends on sensor/processing)
+  string format = 2; // e.g., "uint16", "float32"
+  int32 width = 3;
+  int32 height = 4;
+  float min_depth = 5; // Optional: min depth value in the map
+  float max_depth = 6; // Optional: max depth value in the map
+}
+
+message ObjectDetectionResult {
+  string object_name = 1; // Name of the object searched for/detected
+  bool found = 2;
+  // Relative coordinates if found (e.g., meters from robot's perspective)
+  float relative_x = 3;
+  float relative_y = 4;
+  float relative_z = 5; // Optional, depending on camera
+  float confidence = 6; // Optional: Detection confidence
+}
+
+message GenericRobotState {
+  string state_description = 1; // e.g., "Idle", "Charging", "Executing command"
+}
+
+message RobotError {
+  string error_code = 1; // e.g., "NAV_FAILURE", "SENSOR_ERROR"
+  string error_message = 2;
+}
+
+message LocationStatus {
+  // Position
+  float x = 1;
+  float y = 2;
+  float z = 3; // Optional, might be 0 in 2D environments
+
+  // Orientation as a quaternion
+  float orientation_w = 4;
+  float orientation_x = 5;
+  float orientation_y = 6;
+  float orientation_z = 7;
+
+  // The coordinate frame this pose is in (e.g., "map", "odom")
+  string reference_frame = 8;
+}
+
+message EnvironmentalStatus {
+  string physical_address = 1; // e.g., "123 Main St, Anytown, USA"
+  string room_location = 2;    // e.g., "Living Room", "Kitchen"
+  string location_name = 3;    // e.g., "Home", "Office"
+  optional float temperature_celsius = 4;
+  optional float humidity_percent = 5;      // Relative humidity
+  optional float air_pressure_hpa = 6;      // hPa
+  optional float ambient_light_level_lux = 7;
+  optional float ambient_noise_level_db = 8;
+}
+
+// ===================================================================
+//  Messages for Cloud -> Robot Communication
+// ===================================================================
+
+// Represents transcribed text from the cloud
+message Transcription {
+  string text = 1;
+  bool is_final = 2; // Indicates if this is the final transcription for an utterance
+  // google.protobuf.Timestamp timestamp = 3; // Optional
+  float confidence = 4; // Optional: Transcription confidence
+}
+
+// Represents the structured analysis of the speech
+message SpeechAnalysis {
+  string speaker_id = 1; // Optional: Identifier for the speaker if recognized
+  string emotion = 2; // Optional: Detected emotion (e.g., "happy", "confused")
+  bool is_directed_at_robot = 3; // True if speech seems directed at Shimmy
+  string original_text = 4; // The transcription this analysis corresponds to
+}
+
+// Represents a text response the robot should speak
+message TextResponse {
+  string text_to_speak = 1;
+}
+
+// Represents commands for the robot's actuators or sensors
+message RobotCommand {
+  string command_id = 1; // Unique ID for tracking command execution
+
+  oneof command_type {
+    MoveCommand move_command = 2;
+    LEDCommand led_command = 3;
+    CameraCommand camera_command = 4;
+    SystemInfoCommand system_info_command = 5;
+    VoiceSettingsCommand voice_settings_command = 6;
+    FindObjectCommand find_object_command = 7;
+    CancelCommand cancel_command = 8;
+  }
+}
+
+message MoveCommand {
+  // For general movement/turning
+  optional double target_linear_distance_meters = 1; // Positive for forward, negative for backward
+  optional double target_angular_degrees = 2; // Positive for counter-clockwise, negative for clockwise
+  // For move_to_object (Coordinates relative to robot or a map frame)
+  optional string target_object_name = 3; // Name of the object to move towards
+  optional float target_x = 4;
+  optional float target_y = 5;
+  optional float target_z = 6; // Optional target height/altitude
+  optional string reference_frame = 7; // e.g., "base_link", "map"
+}
+
+message LEDCommand {
+  optional string color_hex = 1; // e.g., "#FF0000" for red
+  optional float brightness = 2; // Range 0.0 (off) to 1.0 (full)
+  optional string pattern = 3; // e.g., "blink", "pulse", "solid"
+  optional bool turn_off = 4; // Explicitly turn off LEDs
+}
+
+message CameraCommand {
+  enum CaptureType {
+    CAPTURE_TYPE_UNSPECIFIED = 0;
+    RGB_IMAGE = 1;
+    DEPTH_IMAGE = 2;
+  }
+  CaptureType capture_type = 1;
+}
+
+message SystemInfoCommand {
+  enum InfoRequest {
+    INFO_REQUEST_UNSPECIFIED = 0;
+    GET_POWER_STATUS = 1;
+    GET_CURRENT_TIME = 2;
+  }
+  InfoRequest info_request = 1;
+  optional string time_zone = 2; // e.g., "America/Los_Angeles", needed for GET_CURRENT_TIME
+}
+
+message VoiceSettingsCommand {
+  optional float volume_level = 1; // e.g., 0.0 to 1.0
+}
+
+message FindObjectCommand {
+  string object_name = 1; // Name of the object to find
+}
+
+message CancelCommand {
+  optional string command_id_to_cancel = 1; // If empty, cancel all current actions
+}
+
+// Represents a system message, e.g., for halting processing
+message SystemDirective {
+  enum DirectiveType {
+    DIRECTIVE_TYPE_UNSPECIFIED = 0;
+    HALT_PROCESSING = 1; // e.g., user interruption detected
+  }
+  DirectiveType directive = 1;
+}
+
+
+message CommandAcknowledgement {
+      string command_id = 1;
+      enum Status {
+        UNKNOWN = 0;
+        SUCCESS = 1;
+        FAILURE = 2;
+        IN_PROGRESS = 3;
+        // ... any other statuses you need
+      }
+      Status status = 2;
+      string message = 3;
+    }
+
+// ===================================================================
+//  Messages for the Main Bidirectional Communication Stream
+// ===================================================================
+
+// Message sent FROM the Robot TO the Cloud on the main stream
+message RobotToCloudMessage {
+  string session_id = 1;
+  string robot_id = 4;
+  oneof robot_payload {
+    AudioChunk audio_chunk = 2;
+    RobotStatusUpdate status_update = 3;
+    // Could add other specific robot->cloud messages here if needed
+  }
+}
+
+// Message sent FROM the Cloud TO the Robot on the main stream
+message CloudToRobotMessage {
+  string session_id = 1; // Optional: To identify the session
+  oneof cloud_payload {
+    Transcription transcription = 2;
+    SpeechAnalysis speech_analysis = 3;
+    TextResponse text_response = 4; // For TTS
+    RobotCommand robot_command = 5;
+    SystemDirective system_directive = 6; // e.g., Halt command
+  }
+}
+
+
+// ===================================================================
+//  gRPC Service Definitions
+// ===================================================================
+
+// The main service definition for Shimmy's cloud interaction
+service ShimmyCloudService {
+  // Bidirectional stream initiated by the robot.
+  // Robot sends audio chunks and status updates.
+  // Cloud sends transcriptions, analysis, text responses, and commands.
+  rpc Communicate (stream RobotToCloudMessage) returns (stream CloudToRobotMessage);
+
+  // Optional: A unary RPC if simple request-response is needed outside the stream
+  // rpc SendRobotStatus (RobotStatusUpdate) returns (CloudToRobotMessage);
+}
